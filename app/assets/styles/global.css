@@ -1,0 +1,12 @@
+/* 全局样式补充：与 Naive 主题叠加，保持后台简洁一致 */
+
+html,
+body,
+#__nuxt {
+  height: 100%;
+}
+
+/* 内容区统一留白，避免组件贴边 */
+.admin-page-content {
+  min-height: calc(100vh - 64px - 48px);
+}
