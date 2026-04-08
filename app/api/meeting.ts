@@ -80,6 +80,64 @@ function listFromMockStore(): MeetingRecord[] {
   return Object.values(mockStore).map((item) => cloneRecord(item))
 }
 
+/** 生成上传入库后的唯一 ID（mock） */
+function createUploadRecordId(): string {
+  return `upload-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+/**
+ * mock：上传成功后写入 mockStore，列表/详情与真实入库一致可读
+ */
+function mockUploadMeetingRecord(payload: { file: File; name: string }): MeetingRecord {
+  const id = createUploadRecordId()
+  const displayName = payload.name.trim()
+  const record: MeetingRecord = {
+    id,
+    name: displayName,
+    fileUrl: `upload://${id}/${encodeURIComponent(payload.file.name)}`,
+    transcriptStatus: 'not_started',
+    summaryStatus: 'not_started',
+    transcript: [],
+    summary: ''
+  }
+  mockStore[id] = record
+  return cloneRecord(record)
+}
+
+/**
+ * 上传录制文件并创建会议记录（FormData: file + name）
+ * - 优先请求真实接口 POST /api/meetings/upload
+ * - 失败或非 mock 环境则走 mock：写入 mockStore 并返回 MeetingRecord
+ */
+export async function uploadMeetingRecord(payload: { file: File; name: string }): Promise<MeetingRecord> {
+  await sleepMock()
+  const formData = new FormData()
+  formData.append('file', payload.file)
+  formData.append('name', payload.name.trim())
+
+  try {
+    maybeThrowMockFailure()
+    const created = await apiClient<MeetingRecord>(`${meetingsPath()}/upload`, {
+      method: 'POST',
+      body: formData
+    })
+    const normalized: MeetingRecord = {
+      id: created.id,
+      name: created.name.trim(),
+      fileUrl: created.fileUrl ?? '',
+      transcriptStatus: created.transcriptStatus ?? 'not_started',
+      summaryStatus: created.summaryStatus ?? 'not_started',
+      transcript: Array.isArray(created.transcript) ? [...created.transcript] : [],
+      summary: created.summary ?? ''
+    }
+    mockStore[normalized.id] = cloneRecord(normalized)
+    return cloneRecord(normalized)
+  } catch {
+    maybeThrowMockFailure()
+    return mockUploadMeetingRecord(payload)
+  }
+}
+
 /**
  * 获取会议列表
  */
