@@ -19,7 +19,7 @@
     </n-alert>
     <n-alert v-else-if="initError === 'fetch_failed'" type="error" title="详情加载失败" show-icon>
       <n-space vertical :size="12">
-        <span>可能是网络异常或 mock 随机失败导致，请稍后重试。</span>
+        <span>网络异常或服务暂时不可用，请稍后重试。</span>
         <div>
           <n-button size="small" type="primary" :loading="initializing" @click="initializeDetail">重试加载</n-button>
         </div>
@@ -27,15 +27,17 @@
     </n-alert>
 
     <n-spin v-else :show="initializing" style="min-height: 220px">
-    <n-card v-if="detailRecord">
+      <!-- 单一根容器：避免部分环境下 Vite 对插槽多根 HMR 不稳定 -->
+      <div>
+        <n-card v-if="detailRecord">
         <n-tabs type="line" animated>
           <n-tab-pane name="video" tab="视频管理">
             <n-space vertical :size="12">
               <n-alert type="info" title="说明">
-                录制接入后在此预览 fileUrl 指向的媒体资源；当前为占位。
+                在此预览会议关联的媒体文件；若尚未上传或绑定，将显示暂无内容。
               </n-alert>
-              <n-empty v-if="!detailRecord.fileUrl" description="暂无视频文件地址（fileUrl 为空）" />
-              <n-card v-else embedded size="small" title="文件地址">
+              <n-empty v-if="!detailRecord.fileUrl" description="暂无媒体文件" />
+              <n-card v-else embedded size="small" title="媒体地址">
                 <n-text code>{{ detailRecord.fileUrl }}</n-text>
               </n-card>
             </n-space>
@@ -53,7 +55,7 @@
                 <n-space :size="8">
                   <n-button
                     type="primary"
-                    :loading="transcriptStatus === 'processing'"
+                    :loading="transcriptStatus === 'processing' || transcriptParsing"
                     :disabled="transcriptStatus === 'processing' || transcriptParsing"
                     @click="startTranscript"
                   >
@@ -146,15 +148,16 @@
             </n-space>
           </n-tab-pane>
         </n-tabs>
-    </n-card>
+        </n-card>
 
-    <n-empty v-else-if="!initializing" description="暂无详情数据" />
+        <n-empty v-else-if="!initializing" description="暂无详情数据" />
+      </div>
     </n-spin>
   </n-space>
 </template>
 
 <script setup lang="ts">
-import { patchMeetingSummary, patchMeetingTranscript } from '~/api/meeting'
+import { patchMeetingSummary } from '~/api/meeting'
 import { getProcessStatusTagType, getProcessStatusText } from '~/constants/meeting'
 import { useMeetingDetail } from '~/composables/useMeetingDetail'
 import type { MeetingRecord } from '~/types/meeting'
@@ -171,24 +174,22 @@ const {
   initDetail,
   canGenerateSummary: canGenerateSummaryFn,
   beginTranscriptParse,
-  completeTranscriptParse,
-  failTranscriptParse,
+  runTranscriptParse,
   beginSummaryGenerate,
   completeSummaryGenerate,
   failSummaryGenerate,
-  createDemoTranscriptSegments,
   createDemoSummaryMarkdown
 } = useMeetingDetail()
 
 /** 路由参数中的会议 ID */
 const meetingId = computed(() => String(route.params.id ?? ''))
 
-/** 当前详情（单一数据源，避免字段与 mock 不一致） */
+/** 当前详情（单一数据源） */
 const detailRecord = ref<MeetingRecord | null>(null)
 /** 初始化异常：不存在 / 请求失败 */
 const initError = ref<'not_found' | 'fetch_failed' | null>(null)
 const initializing = ref(false)
-/** 本地异步占位，避免连点（mock 延迟期间） */
+/** 本地异步状态，避免重复点击 */
 const transcriptParsing = ref(false)
 const summaryParsing = ref(false)
 
@@ -245,39 +246,30 @@ async function initializeDetail(): Promise<void> {
   }
 }
 
+/**
+ * 开始解析 / 重新解析：调用接口后刷新详情状态
+ */
 async function startTranscript(): Promise<void> {
   if (!detailRecord.value) return
   if (transcriptStatus.value === 'processing') return
   transcriptParsing.value = true
   detailRecord.value = beginTranscriptParse(detailRecord.value)
-  patchMeetingTranscript({
-    id: meetingId.value,
-    transcriptStatus: 'processing',
-    transcript: []
-  })
-  patchMeetingSummary({
-    id: meetingId.value,
-    summaryStatus: 'not_started',
-    summary: ''
-  })
   try {
-    await wait(1200)
-    const segments = createDemoTranscriptSegments(meetingId.value)
-    detailRecord.value = completeTranscriptParse(detailRecord.value!, segments)
-    patchMeetingTranscript({
-      id: meetingId.value,
-      transcriptStatus: detailRecord.value.transcriptStatus,
-      transcript: detailRecord.value.transcript
-    })
-    message.success('转写解析完成')
+    const next = await runTranscriptParse(meetingId.value)
+    detailRecord.value = next
+    if (next.transcriptStatus === 'success') {
+      message.success('转写完成')
+    } else if (next.transcriptStatus === 'failed') {
+      message.error('转写失败，请点击「重新解析」重试')
+    }
   } catch (error: unknown) {
-    detailRecord.value = failTranscriptParse(detailRecord.value!)
-    patchMeetingTranscript({
-      id: meetingId.value,
-      transcriptStatus: 'failed',
-      transcript: []
-    })
-    message.error('转写解析失败')
+    const errMsg = error instanceof Error ? error.message : ''
+    if (errMsg === 'MEETING_NOT_FOUND') {
+      message.warning('会议不存在，请返回列表')
+    } else {
+      message.error(errMsg.includes('MOCK_RANDOM_FAILURE') ? '转写暂时失败，请重试' : '转写任务失败，请重试')
+    }
+    await initializeDetail()
     console.error('startTranscript', error)
   } finally {
     transcriptParsing.value = false

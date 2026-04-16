@@ -1,5 +1,5 @@
 /**
- * 会议域类型：与后端接口契约对齐（P0）
+ * 会议域类型：与后端接口契约对齐
  */
 import type { ProcessStatus } from '~/constants/meeting'
 
@@ -26,7 +26,7 @@ export interface MeetingRecord {
   id: string
   /** 会议名称 */
   name: string
-  /** 关联媒体文件地址（占位，录制接入后写入） */
+  /** 关联媒体文件地址（无则可为空字符串） */
   fileUrl: string
   transcriptStatus: ProcessStatus
   summaryStatus: ProcessStatus

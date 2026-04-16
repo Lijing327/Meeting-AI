@@ -9,8 +9,11 @@ import type { ProcessStatus } from '~/constants/meeting'
 /** mock 网络延迟（毫秒），用于观察 loading */
 export const mockDelay = 800
 
-/** mock 随机失败概率 0~1，用于压测错误态 UI */
-export const mockFailRate = 0.1
+/** 随机失败概率 0~1（开发环境用于压测错误态；生产构建为 0） */
+export const mockFailRate = import.meta.dev ? 0.1 : 0
+
+/** mock 转写任务阶段二耗时（processing → 结束） */
+const transcriptMockJobMs = 1500
 
 function meetingsPath(subPath: string = ''): string {
   if (!subPath) {
@@ -38,19 +41,19 @@ function maybeThrowMockFailure(): void {
 const mockStore: Record<string, MeetingRecord> = {
   'sample-1': {
     id: 'sample-1',
-    name: '示例：季度例会（点此详情验证路由）',
+    name: '季度经营例会',
     fileUrl: 'file://sample-1/meeting.mp4',
     transcriptStatus: 'success',
     summaryStatus: 'processing',
     transcript: [
       { id: 'sample-1-1', speaker: '主持人', startSec: 0, endSec: 24, text: '大家好，我们开始季度例会。' },
-      { id: 'sample-1-2', speaker: '产品', startSec: 25, endSec: 58, text: '本季度核心目标是交付会议 AI 助手 P0。' }
+      { id: 'sample-1-2', speaker: '产品', startSec: 25, endSec: 58, text: '本季度核心目标是推进会议智能化与协作效率提升。' }
     ],
     summary: ''
   },
   'sample-2': {
     id: 'sample-2',
-    name: '示例：项目复盘会',
+    name: '项目复盘会',
     fileUrl: 'file://sample-2/meeting.mp4',
     transcriptStatus: 'failed',
     summaryStatus: 'not_started',
@@ -59,7 +62,7 @@ const mockStore: Record<string, MeetingRecord> = {
   },
   'sample-3': {
     id: 'sample-3',
-    name: '示例：研发周会',
+    name: '研发周会',
     fileUrl: 'file://sample-3/meeting.mp4',
     transcriptStatus: 'not_started',
     summaryStatus: 'not_started',
@@ -184,7 +187,143 @@ export async function createMeetingSession(_payload: { title?: string }): Promis
 }
 
 /**
- * 更新转写状态与内容（仅 mock 内存，用于前端联动演示）
+ * 生成 mock 转写片段（4～5 段，便于演示时间轴）
+ */
+export function buildMockTranscriptSegments(meetingId: string): TranscriptSegment[] {
+  const prefix = meetingId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32)
+  return [
+    {
+      id: `${prefix}-seg-1`,
+      speaker: '主持人',
+      startSec: 0,
+      endSec: 18,
+      text: '大家好，会议开始，今天我们同步本季度产品与研发进度。'
+    },
+    {
+      id: `${prefix}-seg-2`,
+      speaker: '产品',
+      startSec: 19,
+      endSec: 45,
+      text: '当前已完成录制与上传能力，下一步重点是把转写与纪要链路打磨稳定。'
+    },
+    {
+      id: `${prefix}-seg-3`,
+      speaker: '研发',
+      startSec: 46,
+      endSec: 78,
+      text: '转写与详情状态以后端为准，前端会按接口状态展示进度与结果。'
+    },
+    {
+      id: `${prefix}-seg-4`,
+      speaker: '',
+      startSec: 79,
+      endSec: 105,
+      text: '未标注发言人时，界面会统一显示为「发言人」。'
+    },
+    {
+      id: `${prefix}-seg-5`,
+      speaker: '项目经理',
+      startSec: 106,
+      endSec: 140,
+      text: '请大家确认排期与联调窗口，散会前我会在群里发会议纪要草案。'
+    }
+  ]
+}
+
+/**
+ * mock：启动转写 — 重置纪要 → processing → 延迟 → success / failed（写回 mockStore）
+ */
+async function mockStartMeetingTranscript(meetingId: string): Promise<MeetingRecord> {
+  const target = mockStore[meetingId]
+  if (!target) {
+    throw new Error('MEETING_NOT_FOUND')
+  }
+
+  patchMeetingSummary({
+    id: meetingId,
+    summaryStatus: 'not_started',
+    summary: ''
+  })
+  patchMeetingTranscript({
+    id: meetingId,
+    transcriptStatus: 'processing',
+    transcript: []
+  })
+
+  await new Promise<void>((resolve) => setTimeout(resolve, transcriptMockJobMs))
+
+  try {
+    maybeThrowMockFailure()
+    patchMeetingTranscript({
+      id: meetingId,
+      transcriptStatus: 'success',
+      transcript: buildMockTranscriptSegments(meetingId)
+    })
+  } catch {
+    patchMeetingTranscript({
+      id: meetingId,
+      transcriptStatus: 'failed',
+      transcript: []
+    })
+  }
+
+  return cloneRecord(mockStore[meetingId])
+}
+
+/**
+ * 启动转写（含重新解析：与后端约定同一语义，重新解析时重置纪要由服务端或 mock 侧完成）
+ * POST /api/meetings/:id/transcript/start
+ * 失败则走 mockStartMeetingTranscript
+ */
+export async function startMeetingTranscript(meetingId: string): Promise<MeetingRecord> {
+  try {
+    await sleepMock()
+    maybeThrowMockFailure()
+    const data = await apiClient<MeetingRecord>(`${meetingsPath(meetingId)}/transcript/start`, {
+      method: 'POST'
+    })
+    const normalized: MeetingRecord = {
+      id: meetingId,
+      name: data.name?.trim() ?? mockStore[meetingId]?.name ?? '',
+      fileUrl: data.fileUrl ?? mockStore[meetingId]?.fileUrl ?? '',
+      transcriptStatus: data.transcriptStatus ?? 'not_started',
+      summaryStatus: data.summaryStatus ?? 'not_started',
+      transcript: Array.isArray(data.transcript) ? [...data.transcript] : [],
+      summary: data.summary ?? ''
+    }
+    mockStore[meetingId] = cloneRecord(normalized)
+    return cloneRecord(normalized)
+  } catch {
+    maybeThrowMockFailure()
+    return await mockStartMeetingTranscript(meetingId)
+  }
+}
+
+/**
+ * 重新解析：与 start 共用同一入口（若后端拆分 endpoint，可在此替换为独立请求）
+ */
+export async function retryMeetingTranscript(meetingId: string): Promise<MeetingRecord> {
+  return startMeetingTranscript(meetingId)
+}
+
+/**
+ * 查询当前转写结果与状态（无轮询场景下可用于手动刷新）
+ * GET /api/meetings/:id/transcript
+ */
+export async function fetchMeetingTranscript(meetingId: string): Promise<MeetingRecord | null> {
+  await sleepMock()
+  try {
+    maybeThrowMockFailure()
+    return await apiClient<MeetingRecord>(`${meetingsPath(meetingId)}/transcript`)
+  } catch {
+    maybeThrowMockFailure()
+    const hit = mockStore[meetingId]
+    return hit ? cloneRecord(hit) : null
+  }
+}
+
+/**
+ * 更新转写状态与内容（mockStore；供其它模块或扩展使用）
  */
 export function patchMeetingTranscript(payload: {
   id: string

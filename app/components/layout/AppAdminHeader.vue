@@ -7,14 +7,14 @@
       </n-breadcrumb>
     </div>
     <n-space align="center" :size="12">
-      <n-text depth="3" style="font-size: 13px">企业后台风格 · 骨架预览</n-text>
+      <n-text depth="3" style="font-size: 13px">会议 AI 助手</n-text>
     </n-space>
   </div>
 </template>
 
 <script setup lang="ts">
 /**
- * 顶栏：面包屑与右侧占位（后续可放用户、消息等）
+ * 顶栏：面包屑与右侧区域（可扩展用户、消息等）
  */
 const route = useRoute()
 

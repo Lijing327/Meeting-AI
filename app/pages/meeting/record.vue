@@ -6,7 +6,7 @@
           <n-tag v-if="isRecording" type="error" :bordered="false">录制中 {{ recordSeconds }}s</n-tag>
           <n-tag v-else-if="isRequestingPermission" type="warning" :bordered="false">权限申请中…</n-tag>
           <n-tag v-else-if="recordedFile" type="success" :bordered="false">已生成待上传文件</n-tag>
-          <n-tag v-else type="info" :bordered="false">录制与上传 · P0-6</n-tag>
+          <n-tag v-else type="info" :bordered="false">就绪</n-tag>
         </n-space>
       </template>
 
@@ -17,7 +17,7 @@
       <n-alert
         v-if="errorCode"
         type="error"
-        :title="`录制异常（${errorCode}）`"
+        title="录制出现问题"
         show-icon
         closable
         style="margin-bottom: 16px"
@@ -119,7 +119,7 @@
                 <n-descriptions-item label="大小">
                   {{ formatFileSize(recordedFile.size) }}
                 </n-descriptions-item>
-                <n-descriptions-item label="MIME">
+                <n-descriptions-item label="类型">
                   {{ recordedFile.type || '未知' }}
                 </n-descriptions-item>
               </n-descriptions>
@@ -133,9 +133,7 @@
               >
                 上传视频
               </n-button>
-              <n-text depth="3" style="font-size: 12px">
-                使用 FormData 提交 file + name；成功后跳转会议详情。失败可保留录制结果并重试。
-              </n-text>
+              <n-text depth="3" style="font-size: 12px">上传成功后将进入会议详情；失败时可保留本次录制并重新上传。</n-text>
             </n-space>
           </n-card>
         </n-gi>
@@ -251,7 +249,7 @@ async function onRerecord(): Promise<void> {
 }
 
 /**
- * 上传录制文件：成功后写入后端或 mockStore，并跳转详情形成闭环
+ * 上传录制文件：成功后写入后端并跳转详情
  */
 async function onUploadRecording(): Promise<void> {
   const file = recordedFile.value
@@ -274,7 +272,7 @@ async function onUploadRecording(): Promise<void> {
     const text =
       error instanceof Error
         ? error.message.includes('MOCK_RANDOM_FAILURE')
-          ? '上传失败（mock 随机失败），请重试'
+          ? '上传失败，请稍后重试'
           : error.message
         : '上传失败，请稍后重试'
     uploadError.value = text

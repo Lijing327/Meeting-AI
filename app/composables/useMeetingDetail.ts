@@ -1,6 +1,6 @@
-import type { MeetingRecord, MeetingStatusSnapshot, TranscriptSegment } from '~/types/meeting'
+import type { MeetingRecord, MeetingStatusSnapshot } from '~/types/meeting'
 import type { ProcessStatus } from '~/constants/meeting'
-import { fetchMeetingDetail } from '~/api/meeting'
+import { fetchMeetingDetail, startMeetingTranscript } from '~/api/meeting'
 
 /** 详情初始化结果：区分不存在与请求失败，便于详情页展示 Alert */
 export type MeetingDetailInitResult =
@@ -55,15 +55,6 @@ export function useMeetingDetail() {
     return normalized.transcriptStatus === 'success' && normalized.transcript.length > 0
   }
 
-  /** 演示用转写片段（不接真实 ASR） */
-  function createDemoTranscriptSegments(id: string): TranscriptSegment[] {
-    return [
-      { id: `${id}-1`, speaker: '主持人', startSec: 0, endSec: 26, text: '大家好，我们开始今天的项目周会。' },
-      { id: `${id}-2`, speaker: '产品', startSec: 27, endSec: 58, text: '本周重点是会议 AI 助手 P0 页面链路。' },
-      { id: `${id}-3`, speaker: '研发', startSec: 59, endSec: 92, text: '列表、详情与纪要展示已经进入联调阶段。' }
-    ]
-  }
-
   /** 开始转写解析：进入 processing，清空转写结果并重置纪要 */
   function beginTranscriptParse(record: MeetingRecord): MeetingRecord {
     return normalizeState({
@@ -72,24 +63,6 @@ export function useMeetingDetail() {
       transcript: [],
       summaryStatus: 'not_started',
       summary: ''
-    })
-  }
-
-  /** 转写成功 */
-  function completeTranscriptParse(record: MeetingRecord, segments: TranscriptSegment[]): MeetingRecord {
-    return normalizeState({
-      ...record,
-      transcriptStatus: 'success',
-      transcript: segments
-    })
-  }
-
-  /** 转写失败 */
-  function failTranscriptParse(record: MeetingRecord): MeetingRecord {
-    return normalizeState({
-      ...record,
-      transcriptStatus: 'failed',
-      transcript: []
     })
   }
 
@@ -124,16 +97,16 @@ export function useMeetingDetail() {
   function createDemoSummaryMarkdown(): string {
     return [
       '## 会议主题',
-      '- 会议 AI 助手 P0 演示链路推进',
+      '- 本次会议围绕产品与研发进度同步',
       '',
       '## 关键结论',
-      '- 先打通列表 -> 详情 -> 转写 -> 纪要闭环',
-      '- 录制能力后置，先保证状态机和展示稳定',
+      '- 语音转写结果已就绪，可作为纪要生成依据',
+      '- 后续可将纪要导出或同步至协作工具',
       '',
       '## 待办',
-      '1. 完成详情页状态驱动交互',
-      '2. 列表补充解析/纪要状态字段',
-      '3. 对接真实后端接口替换 mock'
+      '1. 确认下一版需求范围与排期',
+      '2. 跟进转写与纪要的接口联调',
+      '3. 收集试用反馈并迭代体验'
     ].join('\n')
   }
 
@@ -164,6 +137,15 @@ export function useMeetingDetail() {
     }
   }
 
+  /**
+   * 执行转写任务（开始解析 / 重新解析均调用同一后端语义）
+   * 返回归一化后的 MeetingRecord，便于详情页覆盖 detailRecord
+   */
+  async function runTranscriptParse(meetingId: string): Promise<MeetingRecord> {
+    const raw = await startMeetingTranscript(meetingId)
+    return normalizeState(raw)
+  }
+
   return {
     setSnapshot,
     getSnapshot,
@@ -171,12 +153,10 @@ export function useMeetingDetail() {
     normalizeState,
     canGenerateSummary,
     beginTranscriptParse,
-    completeTranscriptParse,
-    failTranscriptParse,
+    runTranscriptParse,
     beginSummaryGenerate,
     completeSummaryGenerate,
     failSummaryGenerate,
-    createDemoTranscriptSegments,
     createDemoSummaryMarkdown
   }
 }

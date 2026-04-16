@@ -46,7 +46,7 @@ type MeetingRowView = MeetingRecord & {
 
 const columns: DataTableColumns<MeetingRowView> = [
   { title: '名称', key: 'name', ellipsis: { tooltip: true } },
-  { title: '文件', key: 'fileUrl', ellipsis: { tooltip: true }, width: 220 },
+  { title: '媒体地址', key: 'fileUrl', ellipsis: { tooltip: true }, width: 220 },
   { title: '解析状态', key: 'transcriptLabel', width: 120 },
   { title: '纪要状态', key: 'summaryLabel', width: 120 },
   { title: '操作', key: 'actionText', width: 160 }
@@ -89,7 +89,7 @@ onMounted(async () => {
   try {
     tableData.value = await fetchMeetingList()
   } catch (error: unknown) {
-    message.error('加载会议列表失败，可能是 mock 随机失败，请重试')
+    message.error('加载会议列表失败，请稍后重试')
     console.error('fetchMeetingList', error)
   } finally {
     loading.value = false
